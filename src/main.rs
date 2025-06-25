@@ -5,11 +5,12 @@ use std::error::Error;
 use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
 use yellowstone_grpc_client::{ClientTlsConfig, GeyserGrpcClient};
-use yellowstone_grpc_proto::geyser::{
-    SubscribeRequestFilterSlots
-};
+use yellowstone_grpc_proto::geyser::{SubscribeRequestFilterSlots, SubscribeRequestFilterTransactions};
 use yellowstone_grpc_proto::prelude::subscribe_update::UpdateOneof;
 use yellowstone_grpc_proto::prelude::SubscribeRequest;
+
+const PROGRAM_ID_1: &str = "";
+const PROGRAM_ID_2: &str = "";
 
 #[derive(Debug, Deserialize)]
 struct Config {
@@ -44,7 +45,7 @@ async fn main() {
     drop(sender);
 
     while let Some(slot) = receiver.recv().await {
-        println!("Slot: {}", slot);
+        println!("Transactions: {}", slot);
     }
 }
 
@@ -55,18 +56,34 @@ async fn worker(conn: Auth, tx: mpsc::Sender<u64>) -> Result<(), Box<dyn Error>>
         .connect()
         .await?;
     
-    let mut slots: HashMap<String, SubscribeRequestFilterSlots> = HashMap::new();
+    let mut transactions: HashMap<String, SubscribeRequestFilterTransactions> = HashMap::new();
 
-    slots.insert(
-        "default".to_string(),
-        SubscribeRequestFilterSlots {
-            filter_by_commitment: Some(false),
-            interslot_updates: Some(false),
+    transactions.insert(
+        "subscribe_program_1".to_string(),
+        SubscribeRequestFilterTransactions {
+            vote: None,
+            failed: None,
+            signature: None,
+            account_include: vec![],
+            account_exclude: vec![],
+            account_required: vec![PROGRAM_ID_1.to_string()],
+        },
+    );
+
+    transactions.insert(
+        "subscribe_program_2".to_string(),
+        SubscribeRequestFilterTransactions {
+            vote: None,
+            failed: None,
+            signature: None,
+            account_include: vec![],
+            account_exclude: vec![],
+            account_required: vec![PROGRAM_ID_2.to_string()],
         },
     );
    
     let subscribe_request = SubscribeRequest {
-        slots: slots,
+        transactions,
         ..Default::default()
     };
 
@@ -77,9 +94,9 @@ async fn worker(conn: Auth, tx: mpsc::Sender<u64>) -> Result<(), Box<dyn Error>>
             Ok(update) => {
                 if let Some(oneof) = update.update_oneof {
                     match oneof {
-                        UpdateOneof::Slot(slot_update) => {
-                            let slot = slot_update.slot;
-                            let _ = tx.send(slot).await;
+                        UpdateOneof::Transaction(trans_update) => {
+                            let transation = trans_update.transaction;
+                            let _ = tx.send(transation.unwrap().index).await;
                         }
                         other => {
                             println!("Other: {:?}", other);
