@@ -56,9 +56,11 @@ async fn worker(conn: Auth, tx: mpsc::Sender<u64>) -> Result<(), Box<dyn Error>>
         .connect()
         .await?;
     
-    let mut transactions: HashMap<String, SubscribeRequestFilterTransactions> = HashMap::new();
+    let mut transactions_first: HashMap<String, SubscribeRequestFilterTransactions> = HashMap::new();
+    
+    let mut transactions_second: HashMap<String, SubscribeRequestFilterTransactions> = HashMap::new();
 
-    transactions.insert(
+    transactions_first.insert(
         "subscribe_program_1".to_string(),
         SubscribeRequestFilterTransactions {
             vote: None,
@@ -70,7 +72,7 @@ async fn worker(conn: Auth, tx: mpsc::Sender<u64>) -> Result<(), Box<dyn Error>>
         },
     );
 
-    transactions.insert(
+    transactions_second.insert(
         "subscribe_program_2".to_string(),
         SubscribeRequestFilterTransactions {
             vote: None,
@@ -82,14 +84,44 @@ async fn worker(conn: Auth, tx: mpsc::Sender<u64>) -> Result<(), Box<dyn Error>>
         },
     );
    
-    let subscribe_request = SubscribeRequest {
-        transactions,
+    let subscribe_request_first = SubscribeRequest {
+        transactions:transactions_first,
         ..Default::default()
     };
 
-    let (_sink, mut stream) = client.subscribe_with_request(Some(subscribe_request)).await?;
+    let subscribe_request_second = SubscribeRequest {
+        transactions:transactions_second,
+        ..Default::default()
+    };
 
-    while let Some(update) = stream.next().await {
+    
+    let (_sink, mut stream_first) = client.subscribe_with_request(Some(subscribe_request_first)).await?;
+
+    while let Some(update) = stream_first.next().await {
+        match update {
+            Ok(update) => {
+                if let Some(oneof) = update.update_oneof {
+                    match oneof {
+                        UpdateOneof::Transaction(trans_update) => {
+                            let transation = trans_update.transaction;
+                            let _ = tx.send(transation.unwrap().index).await;
+                        }
+                        other => {
+                            println!("Other: {:?}", other);
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("E: {e}");
+                break;
+            }
+        }
+    }
+
+    let (_sink, mut stream_second) = client.subscribe_with_request(Some(subscribe_request_second)).await?;
+
+    while let Some(update) = stream_second.next().await {
         match update {
             Ok(update) => {
                 if let Some(oneof) = update.update_oneof {
